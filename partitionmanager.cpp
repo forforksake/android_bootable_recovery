@@ -53,6 +53,7 @@
 #include "progresstracking.hpp"
 #include "twrpDigestDriver.hpp"
 #include "adbbu/libtwadbbu.hpp"
+#include "amonet.h"
 
 #ifdef TW_HAS_MTP
 #ifdef TW_HAS_LEGACY_MTP
@@ -2543,6 +2544,8 @@ bool TWPartitionManager::Flash_Image(string& path, string& filename) {
 		return false;
 	}
 	gui_highlight("flash_done=IMAGE FLASH COMPLETED]");
+	if (repatch() < 0)
+		return false;
 	return true;
 }
 
