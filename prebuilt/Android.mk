@@ -21,7 +21,15 @@ else
     RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/sh
     RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libcrypto.so
     ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 23; echo $$?),0)
+        RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/grep
+        LOCAL_POST_INSTALL_CMD += $(hide) if [ -e "$(TARGET_RECOVERY_ROOT_OUT)/sbin/egrep" ]; then \
+                                    rm $(TARGET_RECOVERY_ROOT_OUT)/sbin/egrep; fi; ln -sr $(TARGET_RECOVERY_ROOT_OUT)/sbin/grep $(TARGET_RECOVERY_ROOT_OUT)/sbin/egrep; \
+                                    if [ -e "$(TARGET_RECOVERY_ROOT_OUT)/sbin/fgrep" ]; then \
+                                    rm $(TARGET_RECOVERY_ROOT_OUT)/sbin/fgrep; fi; ln -sr $(TARGET_RECOVERY_ROOT_OUT)/sbin/grep $(TARGET_RECOVERY_ROOT_OUT)/sbin/fgrep;
         RELINK_SOURCE_FILES += $(TARGET_RECOVERY_ROOT_OUT)/sbin/toybox
+        ifeq ($(shell test $(PLATFORM_SDK_VERSION) -gt 23; echo $$?),0)
+            RELINK_SOURCE_FILES += $(TARGET_RECOVERY_ROOT_OUT)/sbin/dd
+        endif
         ifneq ($(wildcard external/zip/Android.mk),)
             RELINK_SOURCE_FILES += $(TARGET_OUT_OPTIONAL_EXECUTABLES)/zip
         endif
@@ -30,6 +38,9 @@ else
         endif
         ifneq ($(wildcard system/core/libziparchive/Android.bp),)
             RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/unzip
+        endif
+        ifneq ($(wildcard external/one-true-awk/Android.bp),)
+            RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/awk
         endif
     endif
 endif
@@ -226,6 +237,10 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
             ifneq ($(wildcard hardware/interfaces/weaver/1.0/Android.bp),)
                 RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.weaver@1.0.so
             endif
+            ifneq ($(wildcard hardware/interfaces/confirmationui/1.0/Android.bp),)
+                RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.confirmationui@1.0.so
+            endif
+
             RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libhardware_legacy.so
         else
             RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libkeymaster1.so
@@ -309,7 +324,11 @@ ifeq ($(shell test $(PLATFORM_SDK_VERSION) -gt 22; echo $$?),0)
     RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/fsck.ntfs
     RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/mkfs.ntfs
     RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libntfs-3g.so
-    RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libfuse.so
+    ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 28; echo $$?),0)
+        RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libfuse-lite.so
+    else
+        RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libfuse.so
+    endif
 else
     RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/ntfs-3g
     RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/ntfsfix
@@ -406,13 +425,15 @@ LOCAL_SRC_FILES := $(LOCAL_MODULE)
 include $(BUILD_PREBUILT)
 
 #mke2fs.conf
-include $(CLEAR_VARS)
-LOCAL_MODULE := mke2fs.conf
-LOCAL_MODULE_TAGS := eng
-LOCAL_MODULE_CLASS := RECOVERY_EXECUTABLES
-LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/etc
-LOCAL_SRC_FILES := $(LOCAL_MODULE)
-include $(BUILD_PREBUILT)
+ifeq ($(shell test $(PLATFORM_SDK_VERSION) -lt 26; echo $$?),0)
+    include $(CLEAR_VARS)
+    LOCAL_MODULE := mke2fs.conf
+    LOCAL_MODULE_TAGS := eng
+    LOCAL_MODULE_CLASS := RECOVERY_EXECUTABLES
+    LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/etc
+    LOCAL_SRC_FILES := $(LOCAL_MODULE)
+    include $(BUILD_PREBUILT)
+endif
 
 ifeq ($(BOARD_HAS_NO_REAL_SDCARD),)
 	ifeq ($(shell test $(PLATFORM_SDK_VERSION) -lt 23; echo $$?),0)
@@ -524,12 +545,11 @@ endif
 ifeq ($(TW_USE_TOOLBOX), true)
     include $(CLEAR_VARS)
     LOCAL_MODULE := mkshrc_twrp
+    LOCAL_MODULE_STEM := mkshrc
     LOCAL_MODULE_TAGS := eng
     LOCAL_MODULE_CLASS := ETC
     LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/etc
     LOCAL_SRC_FILES := $(LOCAL_MODULE)
-    LOCAL_POST_INSTALL_CMD := \
-        $(hide) mv $(TARGET_RECOVERY_ROOT_OUT)/etc/mkshrc_twrp $(TARGET_RECOVERY_ROOT_OUT)/etc/mkshrc
     include $(BUILD_PREBUILT)
 endif
 
@@ -554,5 +574,14 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
             LOCAL_SRC_FILES := vdc_pie-$(TARGET_ARCH)
             include $(BUILD_PREBUILT)
         endif
+    endif
+endif
+
+ifeq ($(TW_INCLUDE_REPACKTOOLS), true)
+    ifeq ($(wildcard external/magisk-prebuilt/Android.mk),)
+        $(warning Magisk repacking tools not found!)
+        $(warning Please place https://github.com/TeamWin/external_magisk-prebuilt)
+        $(warning into external/magisk-prebuilt)
+        $(error magiskboot prebuilts not present; exiting)
     endif
 endif

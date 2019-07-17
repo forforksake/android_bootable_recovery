@@ -32,6 +32,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <cutils/properties.h>
 
 #include "twcommon.h"
 #include "mtdutils/mounts.h"
@@ -155,7 +156,24 @@ static int Install_Theme(const char* path, ZipWrap *Zip) {
 }
 
 static int Prepare_Update_Binary(const char *path, ZipWrap *Zip, int* wipe_cache) {
-	if (!Zip->ExtractEntry(ASSUMED_UPDATE_BINARY_NAME, TMP_UPDATER_BINARY_PATH, 0755)) {
+	char arches[PATH_MAX];
+	std::string binary_name = ASSUMED_UPDATE_BINARY_NAME;
+	property_get("ro.product.cpu.abilist", arches, "error");
+	if (strcmp(arches, "error") == 0)
+		property_get("ro.product.cpu.abi", arches, "error");
+	vector<string> split = TWFunc::split_string(arches, ',', true);
+	std::vector<string>::iterator arch;
+	std::string base_name = binary_name;
+	base_name += "-";
+	for (arch = split.begin(); arch != split.end(); arch++) {
+		std::string temp = base_name + *arch;
+		if (Zip->EntryExists(temp)) {
+			binary_name = temp;
+			break;
+		}
+	}
+	LOGINFO("Extracting updater binary '%s'\n", binary_name.c_str());
+	if (!Zip->ExtractEntry(binary_name.c_str(), TMP_UPDATER_BINARY_PATH, 0755)) {
 		Zip->Close();
 		LOGERR("Could not extract '%s'\n", ASSUMED_UPDATE_BINARY_NAME);
 		return INSTALL_ERROR;
@@ -333,41 +351,12 @@ int TWinstall_zip(const char* path, int* wipe_cache) {
 	if (strlen(path) < 9 || strncmp(path, "/sideload", 9) != 0) {
 		string digest_str;
 		string Full_Filename = path;
-		string digest_file = path;
-		string defmd5file = digest_file + ".md5sum";
-
-		if (TWFunc::Path_Exists(defmd5file)) {
-			digest_file += ".md5sum";
-		}
-		else {
-			digest_file += ".md5";
-		}
 
 		gui_msg("check_for_digest=Checking for Digest file...");
-		if (!TWFunc::Path_Exists(digest_file)) {
-			gui_msg("no_digest=Skipping Digest check: no Digest file found");
-		}
-		else {
-			if (TWFunc::read_file(digest_file, digest_str) != 0) {
-				LOGERR("Skipping MD5 check: MD5 file unreadable\n");
-			}
-			else {
-				twrpDigest *digest = new twrpMD5();
-				if (!twrpDigestDriver::stream_file_to_digest(Full_Filename, digest)) {
-					delete digest;
-					return INSTALL_CORRUPT;
-				}
-				string digest_check = digest->return_digest_string();
-				if (digest_str == digest_check) {
-					gui_msg(Msg("digest_matched=Digest matched for '{1}'.")(path));
-				}
-				else {
-					LOGERR("Aborting zip install: Digest verification failed\n");
-					delete digest;
-					return INSTALL_CORRUPT;
-				}
-				delete digest;
-			}
+
+		if (*path != '@' && !twrpDigestDriver::Check_File_Digest(Full_Filename)) {
+			LOGERR("Aborting zip install: Digest verification failed\n");
+			return INSTALL_CORRUPT;
 		}
 	}
 
