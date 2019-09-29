@@ -199,6 +199,9 @@ GUIAction::GUIAction(xml_node<>* node)
 		ADD_ACTION(setlanguage);
 		ADD_ACTION(checkforapp);
 		ADD_ACTION(togglebacklight);
+#ifdef TW_BOOT_MENU
+		ADD_ACTION(nonthreadedcmd);
+#endif
 
 		// remember actions that run in the caller thread
 		for (mapFunc::const_iterator it = mf.begin(); it != mf.end(); ++it)
@@ -234,6 +237,9 @@ GUIAction::GUIAction(xml_node<>* node)
 		ADD_ACTION(uninstalltwrpsystemapp);
 		ADD_ACTION(repackimage);
 		ADD_ACTION(fixabrecoverybootloop);
+#ifdef TW_BOOT_MENU
+		ADD_ACTION(threadedsleepcounter);
+#endif
 	}
 
 	// First, get the action
@@ -816,6 +822,13 @@ int GUIAction::sleepcounter(std::string arg)
 	return 0;
 }
 
+#ifdef TW_BOOT_MENU
+int GUIAction::threadedsleepcounter(std::string arg)
+{
+	return sleepcounter(arg);
+}
+#endif
+
 int GUIAction::appenddatetobackupname(std::string arg __unused)
 {
 	operation_start("AppendDateToBackupName");
@@ -1372,6 +1385,13 @@ int GUIAction::cmd(std::string arg)
 	operation_end(op_status);
 	return 0;
 }
+
+#ifdef TW_BOOT_MENU
+int GUIAction::nonthreadedcmd(std::string arg)
+{
+	return cmd(arg);
+}
+#endif
 
 int GUIAction::terminalcommand(std::string arg)
 {
