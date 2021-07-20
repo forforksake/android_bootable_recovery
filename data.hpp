@@ -23,8 +23,6 @@
 #include <pthread.h>
 #include "infomanager.hpp"
 
-#define PERSIST_SETTINGS_FILE  "/persist/.twrps"
-
 using namespace std;
 
 class DataManager
@@ -34,6 +32,7 @@ public:
 	static int LoadValues(const string& filename);
 	static int LoadPersistValues(void);
 	static int Flush();
+	static void LoadTWRPFolderInfo(void);
 
 	// Core get routines
 	static int GetValue(const string& varName, string& value);
@@ -51,7 +50,8 @@ public:
 	static int SetValue(const string& varName, const float value, const int persist = 0);
 	static int SetValue(const string& varName, const unsigned long long& value, const int persist = 0);
 	static int SetProgress(const float Fraction);
-	static int ShowProgress(const float Portion, const float Seconds);
+	static int _SetProgress(float Fraction);
+	static int ShowProgress(float Portion, const float Seconds);
 
 	static void DumpValues();
 	static void update_tz_environment_variables();
@@ -64,8 +64,10 @@ public:
 	static string GetCurrentStoragePath(void);
 	static string GetSettingsStoragePath(void);
 
-protected:
+public:
 	static string mBackingFile;
+
+protected:
 	static int mInitialized;
 	static InfoManager mPersist;
 	static InfoManager mData;

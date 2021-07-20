@@ -30,9 +30,6 @@ else
         ifeq ($(shell test $(PLATFORM_SDK_VERSION) -gt 23; echo $$?),0)
             RELINK_SOURCE_FILES += $(TARGET_RECOVERY_ROOT_OUT)/sbin/dd
         endif
-        ifneq ($(wildcard external/zip/Android.mk),)
-            RELINK_SOURCE_FILES += $(TARGET_OUT_OPTIONAL_EXECUTABLES)/zip
-        endif
         ifneq ($(wildcard external/unzip/Android.mk),)
             RELINK_SOURCE_FILES += $(TARGET_OUT_OPTIONAL_EXECUTABLES)/unzip
         endif
@@ -59,6 +56,9 @@ RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/mke2fs
 RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/tune2fs
 RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/resize2fs
 RELINK_SOURCE_FILES += $(TARGET_RECOVERY_ROOT_OUT)/sbin/simg2img
+ifneq ($(TW_OZIP_DECRYPT_KEY),)
+    RELINK_SOURCE_FILES += $(TARGET_RECOVERY_ROOT_OUT)/sbin/ozip_decrypt
+endif
 ifneq ($(TARGET_ARCH), x86_64)
     RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/linker
 endif
@@ -226,6 +226,12 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
             RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/keystore_cli
             RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/servicemanager
             RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.system.wifi.keystore@1.0.so
+            ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 28; echo $$?),0)
+                RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.vibrator@1.0.so
+                RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.vibrator@1.1.so
+                RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.vibrator@1.2.so
+            endif
+
             ifneq ($(wildcard system/keymaster/keymaster_stl.cpp),)
                 RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libkeymaster_portable.so
                 RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libkeymaster_staging.so
@@ -399,6 +405,16 @@ ifeq ($(shell test $(PLATFORM_SDK_VERSION) -gt 27; echo $$?),0)
     RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/liblogwrap.so
     RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libext2_misc.so
 endif
+ifneq ($(TW_EXCLUDE_NANO), true)
+    RELINK_SOURCE_FILES += $(TARGET_OUT_OPTIONAL_EXECUTABLES)/nano
+    RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libncurses.so
+    RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libssh.so
+    RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libssl.so
+endif
+ifneq ($(TW_EXCLUDE_BASH), true)
+    RELINK_SOURCE_FILES += $(TARGET_OUT_OPTIONAL_EXECUTABLES)/bash
+    RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libncurses.so
+endif
 
 TW_BB_SYMLINKS :=
 ifneq ($(TW_USE_TOOLBOX), true)
@@ -562,6 +578,15 @@ LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
 LOCAL_SRC_FILES := $(LOCAL_MODULE)
 include $(BUILD_PREBUILT)
 
+#TWRP App permissions for Android 9+
+include $(CLEAR_VARS)
+LOCAL_MODULE := privapp-permissions-twrpapp.xml
+LOCAL_MODULE_TAGS := eng
+LOCAL_MODULE_CLASS := RECOVERY_EXECUTABLES
+LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
+LOCAL_SRC_FILES := $(LOCAL_MODULE)
+include $(BUILD_PREBUILT)
+
 ifeq ($(TW_INCLUDE_CRYPTO), true)
     ifneq ($(TW_CRYPTO_USE_SYSTEM_VOLD),)
         ifneq ($(shell test $(PLATFORM_SDK_VERSION) -ge 28; echo $$?),0)
@@ -577,11 +602,80 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
     endif
 endif
 
-ifeq ($(TW_INCLUDE_REPACKTOOLS), true)
+ifneq (,$(filter $(TW_INCLUDE_REPACKTOOLS) $(TW_INCLUDE_RESETPROP) $(TW_INCLUDE_LIBRESETPROP), true))
     ifeq ($(wildcard external/magisk-prebuilt/Android.mk),)
-        $(warning Magisk repacking tools not found!)
+        $(warning Magisk prebuilt tools not found!)
         $(warning Please place https://github.com/TeamWin/external_magisk-prebuilt)
         $(warning into external/magisk-prebuilt)
         $(error magiskboot prebuilts not present; exiting)
     endif
+endif
+
+# Include tzdata in TWRP to fix "__bionic_open_tzdata" log spam
+# Dummy file to apply post-install patch
+ifneq ($(TW_EXCLUDE_TZDATA), true)
+    include $(CLEAR_VARS)
+    LOCAL_MODULE := tzdata_twrp
+    LOCAL_MODULE_TAGS := optional
+    LOCAL_MODULE_CLASS := ETC
+    LOCAL_MODULE_PATH := $(TARGET_ROOT_OUT)/sbin
+    LOCAL_REQUIRED_MODULES := tzdata
+
+    ifeq ($(BOARD_BUILD_SYSTEM_ROOT_IMAGE),true)
+        LOCAL_POST_INSTALL_CMD += \
+            mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/usr/share/zoneinfo; \
+            cp -f $(TARGET_OUT)/usr/share/zoneinfo/tzdata $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/usr/share/zoneinfo/;
+    else
+        LOCAL_POST_INSTALL_CMD += \
+            mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system/usr/share/zoneinfo; \
+            cp -f $(TARGET_OUT)/usr/share/zoneinfo/tzdata $(TARGET_RECOVERY_ROOT_OUT)/system/usr/share/zoneinfo/;
+    endif
+    include $(BUILD_PHONY_PACKAGE)
+endif
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := nano_twrp
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE_CLASS := ETC
+LOCAL_MODULE_PATH := $(TARGET_ROOT_OUT)/sbin
+LOCAL_REQUIRED_MODULES := nano libncurses
+ifeq ($(BOARD_BUILD_SYSTEM_ROOT_IMAGE),true)
+    LOCAL_POST_INSTALL_CMD += \
+        mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc/nano; \
+        cp -rf external/nano/etc/* external/nano/syntax/*.nanorc $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc/nano/; \
+        cp -rf external/libncurses/lib/terminfo $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc/;
+else
+    LOCAL_POST_INSTALL_CMD += \
+        mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system/etc/nano; \
+        cp -rf external/nano/etc/* external/nano/syntax/*.nanorc $(TARGET_RECOVERY_ROOT_OUT)/system/etc/nano/; \
+        cp -rf external/libncurses/lib/terminfo $(TARGET_RECOVERY_ROOT_OUT)/system/etc/;
+endif
+include $(BUILD_PHONY_PACKAGE)
+
+ifneq ($(TW_EXCLUDE_BASH), true)
+	include $(CLEAR_VARS)
+	LOCAL_MODULE := bash_twrp
+	LOCAL_MODULE_TAGS := optional
+	LOCAL_MODULE_CLASS := ETC
+	LOCAL_MODULE_PATH := $(TARGET_ROOT_OUT)/sbin
+	LOCAL_REQUIRED_MODULES := bash
+
+    ifeq ($(BOARD_BUILD_SYSTEM_ROOT_IMAGE),true)
+        LOCAL_POST_INSTALL_CMD += \
+            mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc/bash; \
+            cp -rf external/bash/etc/* $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc/bash/; \
+            sed -i 's/ro.cm.device/ro.product.device/' $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc/bash/bashrc; \
+            sed -i 's/ro.lineage.device/ro.product.device/' $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc/bash/bashrc; \
+            sed -i 's/ro.omni.device/ro.product.device/' $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc/bash/bashrc; \
+            sed -i '/export TERM/d' $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc/bash/bashrc;
+    else
+        LOCAL_POST_INSTALL_CMD += \
+            mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system/etc/bash; \
+            cp -rf external/bash/etc/* $(TARGET_RECOVERY_ROOT_OUT)/system/etc/bash/; \
+            sed -i 's/ro.cm.device/ro.product.device/' $(TARGET_RECOVERY_ROOT_OUT)/system/etc/bash/bashrc; \
+            sed -i 's/ro.lineage.device/ro.product.device/' $(TARGET_RECOVERY_ROOT_OUT)/system/etc/bash/bashrc; \
+            sed -i 's/ro.omni.device/ro.product.device/' $(TARGET_RECOVERY_ROOT_OUT)/system/etc/bash/bashrc; \
+            sed -i '/export TERM/d' $(TARGET_RECOVERY_ROOT_OUT)/system/etc/bash/bashrc;
+    endif
+	include $(BUILD_PHONY_PACKAGE)
 endif

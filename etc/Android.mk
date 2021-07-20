@@ -14,6 +14,15 @@
 
 LOCAL_PATH := $(call my-dir)
 
+include $(CLEAR_VARS)
+LOCAL_MODULE := init.recovery.nano.rc
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE_CLASS := RECOVERY_EXECUTABLES
+LOCAL_MODULE_PATH := $(TARGET_ROOT_OUT)
+
+LOCAL_SRC_FILES := $(LOCAL_MODULE)
+include $(BUILD_PREBUILT)
+
 ifneq ($(TW_EXCLUDE_DEFAULT_USB_INIT), true)
 
 include $(CLEAR_VARS)
@@ -60,6 +69,15 @@ ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 26; echo $$?),0)
 
     LOCAL_SRC_FILES := init.recovery.hlthchrg26.rc
     include $(BUILD_PREBUILT)
+
+    include $(CLEAR_VARS)
+    LOCAL_MODULE := init.recovery.ldconfig.rc
+    LOCAL_MODULE_TAGS := eng
+    LOCAL_MODULE_CLASS := RECOVERY_EXECUTABLES
+    LOCAL_MODULE_PATH := $(TARGET_ROOT_OUT)
+
+    LOCAL_SRC_FILES := init.recovery.ldconfig.rc
+    include $(BUILD_PREBUILT)
 else
     include $(CLEAR_VARS)
     LOCAL_MODULE := init.recovery.hlthchrg.rc
@@ -73,7 +91,6 @@ endif
 
 ifeq ($(TWRP_INCLUDE_LOGCAT), true)
     ifeq ($(TARGET_USES_LOGD), true)
-
         include $(CLEAR_VARS)
         LOCAL_MODULE := init.recovery.logd.rc
         LOCAL_MODULE_TAGS := eng
