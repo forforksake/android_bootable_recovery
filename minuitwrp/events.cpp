@@ -108,7 +108,7 @@ static struct pollfd ev_fds[MAX_DEVICES];
 static struct ev evs[MAX_DEVICES];
 static unsigned ev_count = 0;
 static struct timeval lastInputStat;
-static time_t lastInputMTime;
+struct timespec lastInputMTim;
 static int has_mouse = 0;
 
 static inline int ABS(int x) {
@@ -363,8 +363,12 @@ int ev_init(void)
     }
 
     struct stat st;
-    if(stat("/dev/input", &st) >= 0)
-        lastInputMTime = st.st_mtime;
+    if(stat("/dev/input", &st) >= 0) {
+        lastInputMTim = st.st_mtim;
+#ifdef _EVENT_LOGGING
+        printf("ev_init: lastInputMTim sec: %lu, nsec: %lu\n", st.st_mtim.tv_sec, st.st_mtim.tv_nsec);
+#endif
+    }
     gettimeofday(&lastInputStat, NULL);
 
     return 0;
@@ -778,12 +782,13 @@ int ev_get(struct input_event *ev, int timeout_ms)
     {
         struct stat st;
         stat("/dev/input", &st);
-        if (st.st_mtime > lastInputMTime)
+        if ((st.st_mtim.tv_sec > lastInputMTim.tv_sec)
+            || (st.st_mtim.tv_sec == lastInputMTim.tv_sec && st.st_mtim.tv_nsec > lastInputMTim.tv_nsec))
         {
             LOGI("Reloading input devices\n");
             ev_exit();
             ev_init();
-            lastInputMTime = st.st_mtime;
+            lastInputMTim = st.st_mtim;
         }
         lastInputStat = curr;
     }
