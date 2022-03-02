@@ -75,7 +75,8 @@ LOCAL_SRC_FILES := \
     twrpDigestDriver.cpp \
     openrecoveryscript.cpp \
     tarWrite.c \
-    twrpAdbBuFifo.cpp
+    twrpAdbBuFifo.cpp \
+    twrpRepacker.cpp
 
 ifeq ($(TW_AMONET), true)
   LOCAL_SRC_FILES += amonet.cpp
@@ -200,8 +201,6 @@ endif
 ifeq ($(TARGET_USERIMAGES_USE_EXT4), true)
     ifeq ($(shell test $(PLATFORM_SDK_VERSION) -lt 28; echo $$?),0)
         LOCAL_CFLAGS += -DUSE_EXT4
-    endif
-    ifeq ($(shell test $(PLATFORM_SDK_VERSION) -le 28; echo $$?),0)
         LOCAL_C_INCLUDES += system/extras/ext4_utils \
             system/extras/ext4_utils/include \
 	    $(commands_TWRP_local_path)/crypto/ext4crypt
@@ -218,6 +217,10 @@ ifeq ($(AB_OTA_UPDATER),true)
     LOCAL_CFLAGS += -DAB_OTA_UPDATER=1
     LOCAL_SHARED_LIBRARIES += libhardware android.hardware.boot@1.0
     TWRP_REQUIRED_MODULES += libhardware
+endif
+
+ifneq ($(TW_SYSTEM_BUILD_PROP_ADDITIONAL_PATHS),)
+    LOCAL_CFLAGS += -DTW_SYSTEM_BUILD_PROP_ADDITIONAL_PATHS='"$(TW_SYSTEM_BUILD_PROP_ADDITIONAL_PATHS)"'
 endif
 
 LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
@@ -253,6 +256,13 @@ ifeq ($(TW_EXCLUDE_MTP),)
     LOCAL_CFLAGS += -DTW_HAS_LEGACY_MTP
     LOCAL_SHARED_LIBRARIES += libtwrpmtp-legacy
 endif
+endif
+
+ifeq ($(BOARD_USES_RECOVERY_AS_BOOT), true)
+    LOCAL_CFLAGS += -DBOARD_USES_RECOVERY_AS_BOOT
+endif
+ifeq ($(BOARD_BUILD_SYSTEM_ROOT_IMAGE), true)
+    LOCAL_CFLAGS += -DBOARD_BUILD_SYSTEM_ROOT_IMAGE
 endif
 
 #TWRP Build Flags
@@ -440,6 +450,9 @@ ifneq ($(TW_DEFAULT_LANGUAGE),)
 else
     LOCAL_CFLAGS += -DTW_DEFAULT_LANGUAGE=en
 endif
+ifneq ($(TW_QCOM_ATS_OFFSET),)
+	LOCAL_CFLAGS += -DTW_QCOM_ATS_OFFSET=$(TW_QCOM_ATS_OFFSET)
+endif
 ifneq ($(TW_CLOCK_OFFSET),)
 	LOCAL_CFLAGS += -DTW_CLOCK_OFFSET=$(TW_CLOCK_OFFSET)
 endif
@@ -493,8 +506,8 @@ endif
 ifneq ($(TW_USE_TOOLBOX), true)
     ifeq ($(shell test $(PLATFORM_SDK_VERSION) -lt 24; echo $$?),0)
         LOCAL_POST_INSTALL_CMD += \
-            $(hide) mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/sbin && \
-            ln -sf /sbin/busybox $(TARGET_RECOVERY_ROOT_OUT)/sbin/sh
+            $(hide) mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/sbin; \
+            ln -sf /sbin/busybox $(TARGET_RECOVERY_ROOT_OUT)/sbin/sh;
     endif
 else
     ifneq ($(wildcard external/toybox/Android.mk),)
@@ -552,12 +565,12 @@ ifeq ($(TWRP_INCLUDE_LOGCAT), true)
             TWRP_REQUIRED_MODULES += event-log-tags
             ifeq ($(BOARD_BUILD_SYSTEM_ROOT_IMAGE),true)
                 LOCAL_POST_INSTALL_CMD += \
-                    $(hide) mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc; \
-                    cp $(TARGET_OUT_ETC)/event-log-tags $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc/;
+                    mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc; \
+                    cp -f $(TARGET_OUT_ETC)/event-log-tags $(TARGET_RECOVERY_ROOT_OUT)/system_root/system/etc/;
             else
                 LOCAL_POST_INSTALL_CMD += \
-                    $(hide) mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system/etc; \
-                    cp $(TARGET_OUT_ETC)/event-log-tags $(TARGET_RECOVERY_ROOT_OUT)/system/etc/;
+                    mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system/etc; \
+                    cp -f $(TARGET_OUT_ETC)/event-log-tags $(TARGET_RECOVERY_ROOT_OUT)/system/etc/;
             endif
         endif
     endif
@@ -630,6 +643,12 @@ else
     LOCAL_ADDITIONAL_DEPENDENCIES += $(TWRP_REQUIRED_MODULES)
 endif
 
+TW_THEME_VERSION := $(shell grep TW_THEME_VERSION bootable/recovery/variables.h | cut -d ' ' -f 3)
+
+LOCAL_POST_INSTALL_CMD += \
+    sed -i "s/{themeversion}/$(TW_THEME_VERSION)/" $(TARGET_RECOVERY_ROOT_OUT)$(TWRES_PATH)splash.xml; \
+    sed -i "s/{themeversion}/$(TW_THEME_VERSION)/" $(TARGET_RECOVERY_ROOT_OUT)$(TWRES_PATH)ui.xml;
+
 include $(BUILD_EXECUTABLE)
 
 # Symlink for file_contexts
@@ -643,7 +662,7 @@ else
     LOCAL_ADDITIONAL_DEPENDENCIES := file_contexts.bin
 endif
 LOCAL_POST_INSTALL_CMD += \
-    $(hide) cp -f $(PRODUCT_OUT)/obj/ETC/file_contexts.bin_intermediates/file_contexts.concat.tmp $(TARGET_RECOVERY_ROOT_OUT)/file_contexts
+    cp -f $(PRODUCT_OUT)/obj/ETC/file_contexts.bin_intermediates/file_contexts.concat.tmp $(TARGET_RECOVERY_ROOT_OUT)/file_contexts;
 
 include $(BUILD_PHONY_PACKAGE)
 

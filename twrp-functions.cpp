@@ -66,12 +66,15 @@ extern "C" {
 struct selabel_handle *selinux_handle;
 
 /* Execute a command */
-int TWFunc::Exec_Cmd(const string& cmd, string &result) {
+int TWFunc::Exec_Cmd(const string& cmd, string &result, bool combine_stderr) {
 	FILE* exec;
 	char buffer[130];
 	int ret = 0;
-	exec = __popen(cmd.c_str(), "r");
-	if (!exec) return -1;
+	std::string popen_cmd = cmd;
+	if (combine_stderr)
+		popen_cmd = cmd + " 2>&1";
+	exec = __popen(popen_cmd.c_str(), "r");
+
 	while (!feof(exec)) {
 		if (fgets(buffer, 128, exec) != NULL) {
 			result += buffer;
@@ -521,7 +524,7 @@ void TWFunc::Copy_Log(string Source, string Destination) {
 		if (type == COMPRESSED) {
 			std::string destFileBuffer;
 			std::string getCompressedContents = "pigz -c -d " + Destination;
-			if (Exec_Cmd(getCompressedContents, destFileBuffer) < 0) {
+			if (Exec_Cmd(getCompressedContents, destFileBuffer, false) < 0) {
 				LOGINFO("Unable to get destination logfile contents.\n");
 				return;
 			}
@@ -906,20 +909,20 @@ string TWFunc::Get_Current_Date() {
 }
 
 string TWFunc::System_Property_Get(string Prop_Name) {
-	return System_Property_Get(Prop_Name, PartitionManager, PartitionManager.Get_Android_Root_Path());
+	return System_Property_Get(Prop_Name, PartitionManager, PartitionManager.Get_Android_Root_Path(), "build.prop");
 }
 
-string TWFunc::System_Property_Get(string Prop_Name, TWPartitionManager &PartitionManager, string Mount_Point) {
+string TWFunc::System_Property_Get(string Prop_Name, TWPartitionManager &PartitionManager, string Mount_Point, string prop_file_name) {
 	bool mount_state = PartitionManager.Is_Mounted_By_Path(Mount_Point);
 	std::vector<string> buildprop;
 	string propvalue;
 	if (!PartitionManager.Mount_By_Path(Mount_Point, true))
 		return propvalue;
-	string prop_file = Mount_Point + "/build.prop";
+	string prop_file = Mount_Point + "/" + prop_file_name;
 	if (!TWFunc::Path_Exists(prop_file))
-		prop_file = Mount_Point + "/system/build.prop"; // for devices with system as a root file system (e.g. Pixel)
+		prop_file = Mount_Point + "/system/" + prop_file_name; // for devices with system as a root file system (e.g. Pixel)
 	if (TWFunc::read_file(prop_file, buildprop) != 0) {
-		LOGINFO("Unable to open build.prop for getting '%s'.\n", Prop_Name.c_str());
+		LOGINFO("Unable to open %s for getting '%s'.\n", prop_file_name.c_str(), Prop_Name.c_str());
 		DataManager::SetValue(TW_BACKUP_NAME, Get_Current_Date());
 		if (!mount_state)
 			PartitionManager.UnMount_By_Path(Mount_Point, false);
@@ -1075,6 +1078,16 @@ void TWFunc::Fixup_Time_On_Boot(const string& time_paths /* = "" */)
 	}
 
 	if (!fixed) {
+#ifdef TW_QCOM_ATS_OFFSET
+		// Offset is the difference between the current time and the time since_epoch
+		// To calculate the offset in Android, the following expression (from a root shell) can be used:
+		// echo "$(( ($(date +%s) - $(cat /sys/class/rtc/rtc0/since_epoch)) ))"
+		// Add 3 zeros to the output and use that in the TW_QCOM_ATS_OFFSET flag in your BoardConfig.mk
+		// For example, if the result of the calculation is 1642433544, use 1642433544000 as the offset
+		offset = (uint64_t) TW_QCOM_ATS_OFFSET;
+		DataManager::SetValue("tw_qcom_ats_offset", (unsigned long long) offset, 1);
+		LOGINFO("TWFunc::Fixup_Time: Setting time offset from TW_QCOM_ATS_OFFSET, offset %llu\n", (unsigned long long) offset);
+#else
 		// Failed to get offset from ats file, check twrp settings
 		unsigned long long value;
 		if (DataManager::GetValue("tw_qcom_ats_offset", value) < 0) {
@@ -1084,6 +1097,7 @@ void TWFunc::Fixup_Time_On_Boot(const string& time_paths /* = "" */)
 			LOGINFO("TWFunc::Fixup_Time: Setting time offset from twrp setting file, offset %llu\n", (unsigned long long) offset);
 			// Do not consider the settings file as a definitive answer, keep fixed=false so next run will try ats files again
 		}
+#endif
 	}
 
 	gettimeofday(&tv, NULL);
@@ -1232,10 +1246,21 @@ void TWFunc::copy_kernel_log(string curr_storage) {
 	std::string dmesgCmd = "/sbin/dmesg";
 
 	std::string result;
-	Exec_Cmd(dmesgCmd, result);
+	Exec_Cmd(dmesgCmd, result, false);
 	write_to_file(dmesgDst, result);
 	gui_msg(Msg("copy_kernel_log=Copied kernel log to {1}")(dmesgDst));
 	tw_set_default_metadata(dmesgDst.c_str());
+}
+
+void TWFunc::copy_logcat(string curr_storage) {
+	std::string logcatDst = curr_storage + "/logcat.txt";
+	std::string logcatCmd = "logcat -d";
+
+	std::string result;
+	Exec_Cmd(logcatCmd, result, false);
+	write_to_file(logcatDst, result);
+	gui_msg(Msg("copy_logcat=Copied logcat to {1}")(logcatDst));
+	tw_set_default_metadata(logcatDst.c_str());
 }
 
 bool TWFunc::isNumber(string strtocheck) {
@@ -1392,6 +1417,7 @@ int TWFunc::Property_Override(string Prop_Name, string Prop_Value) {
 #endif
 }
 
+#ifdef USE_EXT4
 bool TWFunc::Get_Encryption_Policy(ext4_encryption_policy &policy, std::string path) {
 #ifdef TW_INCLUDE_FBE
 	if (!TWFunc::Path_Exists(path)) {
@@ -1422,6 +1448,7 @@ bool TWFunc::Set_Encryption_Policy(std::string path, const ext4_encryption_polic
 #endif
 	return true;
 }
+#endif
 
 string TWFunc::Check_For_TwrpFolder(){
 	string oldFolder = "";
@@ -1515,4 +1542,20 @@ string TWFunc::Check_For_TwrpFolder(){
 exit:
 	return TW_DEFAULT_RECOVERY_FOLDER;
 }
+
+bool TWFunc::Check_Xml_Format(const char* filename) {
+	std::string buffer(' ', 4);
+	std::string abx_hdr("ABX\x00", 4);
+	std::ifstream File;
+	File.open(filename);
+	if (File.is_open()) {
+		File.get(&buffer[0], buffer.size());
+		File.close();
+		// Android Binary Xml start from these bytes
+		if(!buffer.compare(0, abx_hdr.size(), abx_hdr))
+			return false; // bad format, not possible to parse
+	}
+	return true; // good format, possible to parse
+}
+
 #endif // ndef BUILD_TWRPTAR_MAIN
